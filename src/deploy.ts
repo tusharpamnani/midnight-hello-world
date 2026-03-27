@@ -1,18 +1,3 @@
-// This file is part of example-hello-world.
-// Copyright (C) 2025-2026 Midnight Foundation
-// SPDX-License-Identifier: Apache-2.0
-// Licensed under the Apache License, Version 2.0 (the "License");
-// You may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//	https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import * as fs from 'node:fs';
@@ -23,7 +8,7 @@ import { Buffer } from 'buffer';
 // Midnight.js imports
 import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { toHex } from '@midnight-ntwrk/midnight-js-utils';
-import { unshieldedToken } from '@midnight-ntwrk/ledger-v7';
+import { unshieldedToken } from '@midnight-ntwrk/ledger-v8';
 import { generateRandomSeed } from '@midnight-ntwrk/wallet-sdk-hd';
 
 // Shared utilities from the utils.ts file
@@ -31,12 +16,15 @@ import {
   createWallet, 
   createProviders, 
   compiledContract, 
-  zkConfigPath 
+  zkConfigPath,
 } from './utils.js';
+import { ensureCompiledArtifacts } from './check-artifacts.js';
 
 // ─── Main Deploy Script ────────────────────────────────────────────────────────
 
 async function main() {
+  ensureCompiledArtifacts();
+
   console.log('\n╔══════════════════════════════════════════════════════════════╗');
   console.log('║        Deploy Hello World to Midnight Preprod                ║');
   console.log('╚══════════════════════════════════════════════════════════════╝\n');
@@ -70,12 +58,7 @@ async function main() {
     const walletCtx = await createWallet(seed);
 
     console.log('  Syncing with network...');
-    const state = await Rx.firstValueFrom(
-      walletCtx.wallet.state().pipe(
-        Rx.throttleTime(5000), 
-        Rx.filter((s) => s.isSynced)
-      )
-    );
+    const state = await walletCtx.wallet.waitForSyncedState();
     
     const address = walletCtx.unshieldedKeystore.getBech32Address();
     const balance = state.unshielded.balances[unshieldedToken().raw] ?? 0n;
@@ -107,9 +90,9 @@ async function main() {
       walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced))
     );
 
-    if (dustState.dust.walletBalance(new Date()) === 0n) {
+    if (dustState.dust.balance(new Date()) === 0n) {
       const nightUtxos = dustState.unshielded.availableCoins.filter(
-        (c: any) => !c.meta?.registeredForDustGeneration
+        (c) => !c.meta?.registeredForDustGeneration
       );
       
       if (nightUtxos.length > 0) {
@@ -119,8 +102,11 @@ async function main() {
           walletCtx.unshieldedKeystore.getPublicKey(),
           (payload) => walletCtx.unshieldedKeystore.signData(payload),
         );
+        const signedRecipe = await walletCtx.wallet.signRecipe(recipe, (payload) =>
+          walletCtx.unshieldedKeystore.signData(payload),
+        );
         await walletCtx.wallet.submitTransaction(
-          await walletCtx.wallet.finalizeRecipe(recipe)
+          await walletCtx.wallet.finalizeRecipe(signedRecipe)
         );
       }
 
@@ -129,7 +115,7 @@ async function main() {
         walletCtx.wallet.state().pipe(
           Rx.throttleTime(5000),
           Rx.filter((s) => s.isSynced),
-          Rx.filter((s) => s.dust.walletBalance(new Date()) > 0n)
+          Rx.filter((s) => s.dust.balance(new Date()) > 0n)
         ),
       );
     }
@@ -143,8 +129,7 @@ async function main() {
     console.log('  Deploying contract (this may take 30-60 seconds)...\n');
     const deployed = await deployContract(providers, {
       compiledContract,
-      privateStateId: 'helloWorldState',
-      initialPrivateState: {},
+      args: [],
     });
 
     const contractAddress = deployed.deployTxData.public.contractAddress;

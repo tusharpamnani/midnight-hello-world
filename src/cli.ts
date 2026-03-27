@@ -1,18 +1,3 @@
-// This file is part of example-hello-world.
-// Copyright (C) 2025-2026 Midnight Foundation
-// SPDX-License-Identifier: Apache-2.0
-// Licensed under the Apache License, Version 2.0 (the "License");
-// You may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//	https://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import * as fs from 'node:fs';
@@ -28,10 +13,13 @@ import {
   compiledContract, 
   HelloWorld 
 } from './utils.js';
+import { ensureCompiledArtifacts } from './check-artifacts.js';
 
 // ─── Main CLI Script ───────────────────────────────────────────────────────────
 
 async function main() {
+  ensureCompiledArtifacts();
+
   console.log('\n╔══════════════════════════════════════════════════════════╗');
   console.log('║           Hello World Contract CLI (Preprod)            ║');
   console.log('╚══════════════════════════════════════════════════════════╝\n');
@@ -55,12 +43,7 @@ async function main() {
     const walletCtx = await createWallet(seed.trim());
 
     console.log('  Syncing wallet...');
-    await Rx.firstValueFrom(
-      walletCtx.wallet.state().pipe(
-        Rx.throttleTime(5000), 
-        Rx.filter((s) => s.isSynced)
-      )
-    );
+    await walletCtx.wallet.waitForSyncedState();
 
     console.log('  Setting up providers...');
     const providers = await createProviders(walletCtx);
@@ -69,8 +52,6 @@ async function main() {
     const contract = await findDeployedContract(providers, {
       contractAddress: deployment.contractAddress,
       compiledContract,
-      privateStateId: 'helloWorldState',
-      initialPrivateState: {},
     });
 
     console.log('  Connected!\n');
@@ -82,7 +63,7 @@ async function main() {
         await Rx.firstValueFrom(
           walletCtx.wallet.state().pipe(Rx.filter((s) => s.isSynced))
         )
-      ).dust.walletBalance(new Date());
+      ).dust.balance(new Date());
 
       console.log('─────────────────────────────────────────────────────────────────');
       console.log(`  DUST: ${dust.toLocaleString()}`);
